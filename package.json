@@ -1,0 +1,13 @@
+{
+  "name": "bindery",
+  "version": "1.0.0",
+  "description": "PDF to EPUB converter — Vercel serverless",
+  "scripts": {
+    "dev": "vercel dev"
+  },
+  "dependencies": {
+    "epub-gen-memory": "^1.1.2",
+    "pdfjs-dist": "^3.11.174",
+    "uuid": "^14.0.1"
+  }
+}

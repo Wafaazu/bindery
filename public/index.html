@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bindery — PDF to EPUB</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --paper: #f6f1e7;
+    --paper-deep: #ece4d3;
+    --ink: #2b2420;
+    --ink-soft: #5c5248;
+    --cloth: #2f4d3a;
+    --cloth-bright: #3f6b50;
+    --thread: #b4471f;
+    --rule: #d9cfba;
+    --error: #9b3328;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); font-family: 'Inter', sans-serif; }
+
+  body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 48px 20px 80px;
+  }
+
+  .wrap { width: 100%; max-width: 560px; }
+
+  header { margin-bottom: 40px; }
+
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--thread);
+    margin: 0 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .eyebrow::before { content: ''; width: 14px; height: 1px; background: var(--thread); }
+
+  h1 {
+    font-family: 'Source Serif 4', serif;
+    font-weight: 600;
+    font-size: 38px;
+    line-height: 1.1;
+    margin: 0 0 12px;
+    letter-spacing: -0.01em;
+  }
+  h1 em { font-style: italic; color: var(--cloth); }
+
+  .sub { font-size: 15px; color: var(--ink-soft); line-height: 1.55; margin: 0; max-width: 46ch; }
+
+  /* book animation */
+  .book-stage {
+    position: relative;
+    height: 86px;
+    margin: 36px 0 8px;
+    display: flex;
+    align-items: flex-end;
+  }
+
+  .sheet {
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 60px; height: 76px;
+    background: #fffdf8;
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    box-shadow: 0 1px 0 rgba(43,36,32,0.04);
+    transform-origin: left bottom;
+    transition: transform 0.55s cubic-bezier(.65,0,.35,1), opacity 0.4s ease;
+  }
+  .sheet::before {
+    content: '';
+    position: absolute;
+    top: 12px; left: 8px; right: 8px;
+    height: 2px;
+    background: var(--rule);
+    box-shadow: 0 6px 0 var(--rule), 0 12px 0 var(--rule), 0 18px 0 var(--rule), 0 24px 0 var(--rule);
+  }
+  .sheet.s2 { transform: translateX(6px); }
+  .sheet.s3 { transform: translateX(12px); }
+
+  .stage.converting .sheet.s1 { transform: translateX(0) rotate(-18deg) translateY(-2px); }
+  .stage.converting .sheet.s2 { transform: translateX(6px) rotate(-9deg); }
+  .stage.converting .sheet.s3 { transform: translateX(12px) rotate(-2deg); }
+
+  .spine {
+    position: absolute;
+    bottom: 0; left: 86px;
+    width: 30px; height: 76px;
+    background: var(--cloth);
+    border-radius: 2px 6px 6px 2px;
+    opacity: 0;
+    transform: scaleX(0.3) translateX(-10px);
+    transform-origin: left center;
+    transition: transform 0.6s cubic-bezier(.65,0,.35,1) 0.25s, opacity 0.4s ease 0.25s;
+  }
+  .spine::after {
+    content: '';
+    position: absolute;
+    inset: 8px 4px;
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 2px;
+  }
+  .stage.done .spine { opacity: 1; transform: scaleX(1) translateX(0); }
+  .stage.done .sheet { opacity: 0; }
+
+  .arrow-label {
+    position: absolute;
+    bottom: -22px; left: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--ink-soft);
+    letter-spacing: 0.04em;
+    opacity: 0.7;
+  }
+
+  /* dropzone */
+  .dropzone {
+    margin-top: 44px;
+    border: 1.5px dashed var(--rule);
+    border-radius: 10px;
+    background: rgba(255,253,248,0.5);
+    padding: 36px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  .dropzone:hover, .dropzone.drag { border-color: var(--cloth-bright); background: rgba(255,253,248,0.85); }
+  .dropzone input { display: none; }
+
+  .dz-icon { width: 34px; height: 34px; margin: 0 auto 14px; color: var(--cloth); }
+  .dz-title { font-size: 14.5px; font-weight: 500; margin: 0 0 4px; }
+  .dz-sub { font-size: 12.5px; color: var(--ink-soft); margin: 0; }
+  .dz-sub .browse { color: var(--thread); text-decoration: underline; text-underline-offset: 2px; }
+
+  .file-chip {
+    display: none;
+    margin-top: 16px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: var(--paper-deep);
+    border: 1px solid var(--rule);
+    border-radius: 7px;
+    padding: 10px 14px;
+    text-align: left;
+  }
+  .file-chip.show { display: flex; }
+  .file-chip .fname { font-family: 'JetBrains Mono', monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-chip .fsize { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-soft); flex-shrink: 0; }
+  .file-chip .remove { background: none; border: none; color: var(--ink-soft); cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 4px; flex-shrink: 0; }
+  .file-chip .remove:hover { color: var(--error); }
+
+  /* meta fields */
+  .meta-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
+  .field label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+  }
+  .field input {
+    width: 100%;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: var(--ink);
+    background: #fffdf8;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 10px 12px;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+  .field input:focus { border-color: var(--cloth-bright); }
+  .field input::placeholder { color: #b8ad9a; }
+
+  /* submit */
+  .submit {
+    width: 100%;
+    margin-top: 22px;
+    padding: 14px 20px;
+    background: var(--cloth);
+    color: #f6f1e7;
+    border: none;
+    border-radius: 7px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.1s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .submit:hover:not(:disabled) { background: var(--cloth-bright); }
+  .submit:active:not(:disabled) { transform: scale(0.99); }
+  .submit:disabled { background: #c9c0ad; cursor: not-allowed; }
+
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid rgba(246,241,231,0.35);
+    border-top-color: #f6f1e7;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+  .submit.loading .spinner { display: inline-block; }
+  .submit.loading .submit-text { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* panels */
+  .panel { margin-top: 20px; border-radius: 9px; padding: 18px; display: none; }
+  .panel.show { display: block; }
+
+  .panel.result { background: #eef2ea; border: 1px solid #c9d8c4; }
+  .panel.result .r-title { font-family: 'Source Serif 4', serif; font-size: 17px; font-weight: 600; margin: 0 0 4px; }
+  .panel.result .r-meta { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--ink-soft); margin: 0 0 14px; }
+
+  .download-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--cloth);
+    color: #f6f1e7;
+    text-decoration: none;
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 10px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: none;
+    font-family: 'Inter', sans-serif;
+    transition: background 0.15s ease;
+  }
+  .download-btn:hover { background: var(--cloth-bright); }
+
+  .panel.error { background: #f5e6e2; border: 1px solid #e3bcb2; color: var(--error); font-size: 13.5px; line-height: 1.5; }
+  .panel.error .e-title { font-weight: 600; margin: 0 0 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; }
+
+  footer { margin-top: 56px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--ink-soft); opacity: 0.6; text-align: center; letter-spacing: 0.03em; }
+
+  @media (max-width: 420px) { h1 { font-size: 30px; } .meta-fields { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">PDF → EPUB</p>
+    <h1>Turn a PDF into a <em>proper</em> ebook.</h1>
+    <p class="sub">Upload a text-based PDF. Bindery reads its structure, finds the chapter breaks, and binds it into a clean EPUB you can open in any reader.</p>
+  </header>
+
+  <div class="book-stage stage" id="bookStage">
+    <div class="sheet s1"></div>
+    <div class="sheet s2"></div>
+    <div class="sheet s3"></div>
+    <div class="spine"></div>
+    <span class="arrow-label">loose pages — bound volume</span>
+  </div>
+
+  <div id="convertForm">
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" accept="application/pdf,.pdf" />
+      <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9.5 14.5L12 12l2.5 2.5"/>
+      </svg>
+      <p class="dz-title">Drop a PDF here</p>
+      <p class="dz-sub">or <span class="browse">browse your files</span> — up to 10MB</p>
+      <div class="file-chip" id="fileChip">
+        <span class="fname" id="fileName"></span>
+        <span class="fsize" id="fileSize"></span>
+        <button type="button" class="remove" id="removeFile" title="Remove">&times;</button>
+      </div>
+    </div>
+
+    <div class="meta-fields">
+      <div class="field">
+        <label for="titleInput">Title (optional)</label>
+        <input type="text" id="titleInput" placeholder="Detected from PDF" />
+      </div>
+      <div class="field">
+        <label for="authorInput">Author (optional)</label>
+        <input type="text" id="authorInput" placeholder="Detected from PDF" />
+      </div>
+    </div>
+
+    <button class="submit" id="submitBtn" disabled>
+      <span class="spinner"></span>
+      <span class="submit-text">Bind into EPUB</span>
+    </button>
+  </div>
+
+  <div class="panel result" id="resultPanel">
+    <p class="r-title" id="resultTitle"></p>
+    <p class="r-meta" id="resultMeta"></p>
+    <button class="download-btn" id="downloadBtn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/>
+      </svg>
+      Download EPUB
+    </button>
+  </div>
+
+  <div class="panel error" id="errorPanel">
+    <p class="e-title">Couldn't bind this one</p>
+    <p id="errorText"></p>
+  </div>
+
+  <footer>bindery · files are not stored · nothing is uploaded to any third party</footer>
+</div>
+
+<script>
+  const dropzone   = document.getElementById('dropzone');
+  const fileInput  = document.getElementById('fileInput');
+  const fileChip   = document.getElementById('fileChip');
+  const fileNameEl = document.getElementById('fileName');
+  const fileSizeEl = document.getElementById('fileSize');
+  const removeFile = document.getElementById('removeFile');
+  const submitBtn  = document.getElementById('submitBtn');
+  const bookStage  = document.getElementById('bookStage');
+  const resultPanel= document.getElementById('resultPanel');
+  const errorPanel = document.getElementById('errorPanel');
+  const downloadBtn= document.getElementById('downloadBtn');
+
+  let selectedFile = null;
+  let epubBlob = null;
+  let epubFileName = 'converted.epub';
+
+  const fmt = b => b < 1048576 ? (b/1024).toFixed(0)+' KB' : (b/1048576).toFixed(1)+' MB';
+
+  function setFile(file) {
+    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
+      return showError('Please choose a PDF file.');
+    }
+    selectedFile = file;
+    fileNameEl.textContent = file.name;
+    fileSizeEl.textContent = fmt(file.size);
+    fileChip.classList.add('show');
+    submitBtn.disabled = false;
+    hidePanels();
+  }
+
+  function clearFile() {
+    selectedFile = null;
+    fileInput.value = '';
+    fileChip.classList.remove('show');
+    submitBtn.disabled = true;
+  }
+
+  function hidePanels() {
+    resultPanel.classList.remove('show');
+    errorPanel.classList.remove('show');
+  }
+
+  function showError(msg) {
+    hidePanels();
+    bookStage.classList.remove('converting', 'done');
+    document.getElementById('errorText').textContent = msg;
+    errorPanel.classList.add('show');
+  }
+
+  dropzone.addEventListener('click', e => { if (!e.target.closest('.file-chip')) fileInput.click(); });
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+  removeFile.addEventListener('click', e => { e.stopPropagation(); clearFile(); });
+
+  ['dragenter','dragover'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
+  ['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
+  dropzone.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) setFile(f); });
+
+  submitBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    hidePanels();
+    submitBtn.disabled = true;
+    submitBtn.classList.add('loading');
+    bookStage.classList.remove('done');
+    bookStage.classList.add('converting');
+
+    const fd = new FormData();
+    fd.append('pdf', selectedFile);
+    const title  = document.getElementById('titleInput').value.trim();
+    const author = document.getElementById('authorInput').value.trim();
+    if (title)  fd.append('title', title);
+    if (author) fd.append('author', author);
+
+    try {
+      const res = await fetch('/api/convert', { method: 'POST', body: fd });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Conversion failed.' }));
+        bookStage.classList.remove('converting');
+        return showError(data.error || 'Something went wrong.');
+      }
+
+      // Response is the raw EPUB binary
+      const blob = await res.blob();
+      epubBlob = blob;
+
+      const resTitle  = decodeURIComponent(res.headers.get('X-Title')  || '') || 'Converted Document';
+      const resAuthor = decodeURIComponent(res.headers.get('X-Author') || '') || 'Unknown Author';
+      const chapters  = res.headers.get('X-Chapter-Count') || '?';
+      const sizeBytes = res.headers.get('X-Size-Bytes') || blob.size;
+
+      epubFileName = resTitle.replace(/[^a-z0-9\-_ ]/gi,'').trim().replace(/\s+/g,'_') + '.epub';
+
+      bookStage.classList.add('done');
+      document.getElementById('resultTitle').textContent = resTitle;
+      document.getElementById('resultMeta').textContent =
+        resAuthor + ' · ' + chapters + (chapters == 1 ? ' chapter' : ' chapters') + ' · ' + fmt(Number(sizeBytes));
+      resultPanel.classList.add('show');
+
+    } catch (err) {
+      bookStage.classList.remove('converting');
+      showError('Could not reach the server. Please try again.');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.classList.remove('loading');
+    }
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    if (!epubBlob) return;
+    const url = URL.createObjectURL(epubBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = epubFileName;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  });
+</script>
+</body>
+</html>
